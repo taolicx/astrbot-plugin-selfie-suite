@@ -1,0 +1,89 @@
+项目：astrbot_plugin_selfie_suite
+
+作用：
+- 这是一个单插件整合版，把生活日程、自拍改图、QQ 空间发布三条链路收进同一个 AstrBot 插件。
+- 当前版本已经按“彻底独立版”收口：运行时不再导入、探测、接管或复用外部自拍相关插件。
+- 只依赖 AstrBot 运行环境和本插件自己的 Python 依赖。
+
+模块结构：
+- main.py
+  - 插件主入口。
+  - 负责加载主配置、初始化内部 life / aiimg / qzone 能力、注册命令、处理定时任务、执行 QQ 空间发布。
+- internal_life/
+  - 内置生活日程模块。
+  - 负责日程数据存储、日程生成、固定时间刷新、当前时段选择。
+- internal_aiimg/core/
+  - 内置改图链路。
+  - 负责参考图管理、图片编辑、图片保存、Provider 路由。
+- internal_qzone/
+  - 内置 QQ 空间底层链路。
+  - 负责 session、api、帖子模型和发布所需的最小能力。
+
+配置策略：
+- 本插件只认自己的三份 JSON 配置：
+  - astrbot_plugin_selfie_suite_life_config.json
+  - astrbot_plugin_selfie_suite_qzone_config.json
+  - astrbot_plugin_selfie_suite_aiimg_config.json
+- 如果用户不想单独维护文件，也可以直接在插件配置里填写：
+  - embedded_life_config_json
+  - embedded_qzone_config_json
+  - embedded_aiimg_config_json
+- 不再默认复用旧插件配置文件，不再回退旧插件数据目录。
+
+数据目录：
+- 主数据目录：
+  - plugin_data/astrbot_plugin_selfie_suite
+- 子目录：
+  - plugin_data/astrbot_plugin_selfie_suite/life_scheduler
+  - plugin_data/astrbot_plugin_selfie_suite/aiimg
+- 这样做的目的，是把单插件运行态和旧多插件部署完全隔离开，避免互相污染。
+
+当前用户面：
+- 查看日程
+- 重写日程
+- 日程时间
+- 自拍参考
+- 自拍
+- 自拍说说
+
+关键执行流：
+- 手动自拍预览：
+  - selfie_preview()
+  - _build_selfie_publish_bundle()
+  - 只返回图片和文案，不发 QQ 空间
+- 手动自拍说说：
+  - publish_selfie_qzone()
+  - publish_selfie_post()
+  - _ensure_qzone_publish_ready()
+  - _build_selfie_publish_bundle()
+  - _publish_direct_to_qzone()
+- 定时自拍说说：
+  - DailySelfiePublishScheduler.start()
+  - _run_custom_publish_job()
+  - publish_selfie_post()
+
+设计边界：
+- 当前目标是“一个插件可直接安装运行”，不是“把底层所有配置项重新做成一套大型统一 UI”。
+- QQ 空间的通知目标只认本插件显式配置的 QQ/群号，不再从外部 qzone 插件读取管理员或管理群。
+- 代码里仍有极少量 no-op 兼容桩，但运行时不会再碰外部自拍插件。
+
+调试提示：
+- 导入失败优先看：
+  - main.py
+  - internal_qzone/config.py
+  - requirements.txt
+- 配置异常优先看：
+  - _resolve_component_config()
+  - embedded_*_config_json 是否是合法 JSON 对象
+- 自拍链路异常优先看：
+  - ReferenceStore
+  - EditRouter
+  - ProviderRegistry
+- QQ 空间发布异常优先看：
+  - _ensure_qzone_publish_ready()
+  - _repair_qzone_login_state()
+  - _publish_direct_to_qzone()
+
+已知风险：
+- 这是运行时整合版，底层能力来自被内嵌的原插件代码，后续如果继续演进，需要统一日志前缀、注释和异常文本。
+- 目前优先保证“单插件独立运行”和“旧链路不再耦合”，不是优先做配置体验美化。

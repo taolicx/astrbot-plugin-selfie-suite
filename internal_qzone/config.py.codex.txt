@@ -1,0 +1,19 @@
+文件: internal_qzone/config.py
+
+作用:
+- 这是给内置 qzone 底层模块补的最小配置协议层。
+- 原 `qzone` 的 `session.py` / `client.py` / `api.py` 只在类型注解上依赖 `PluginConfig`，并不需要完整原配置系统。
+- 这里用 `Protocol` 把运行时真正需要的字段收口成最小面：
+  - `cookies_str`
+  - `timeout`
+  - `client`
+  - `update_cookies()`
+
+为什么存在:
+- 整合插件时没有引入原 `qzone/core/config.py`
+- 但 `internal_qzone/qzone/*.py` 仍有 `from ..config import PluginConfig`
+- 如果不补这个文件，单插件导入会在 qzone 底层直接炸掉
+
+维护提示:
+- 如果以后内置 qzone 底层新增了对配置对象的其他属性访问，需要同步把这个协议补上
+- 这里只做类型和结构适配，不要把原 qzone 的整套配置系统重新复制进来

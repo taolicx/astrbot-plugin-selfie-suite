@@ -1,0 +1,82 @@
+文件：main.py
+
+作用：
+- `astrbot_plugin_selfie_suite` 的主入口。
+- 负责把生活日程、自拍改图、QQ 空间发布三条链路编排成一个单插件。
+- 当前这版已经是独立运行版：运行时不再导入或接管外部自拍相关插件。
+
+关键职责：
+- 读取主配置并构造 `BridgeConfig`
+- 初始化：
+  - `ScheduleDataManager`
+  - `SchedulerGenerator`
+  - `LifeScheduler`
+  - `ImageManager`
+  - `ProviderRegistry`
+  - `EditRouter`
+  - `ReferenceStore`
+- 注册命令：
+  - `查看日程`
+  - `重写日程`
+  - `日程时间`
+  - `自拍参考`
+  - `自拍`
+  - `自拍说说`
+- 启动定时自拍说说任务
+- 执行 QQ 空间登录预检、cookies 刷新、登录修复、发布和重试
+- 在 `on_llm_request` 中注入当前生活状态
+
+配置行为：
+- `BridgeConfig` 只保留当前单插件需要的行为配置。
+- `_resolve_component_config()` 现在只认两类来源：
+  1. 插件配置页里的 `embedded_*_config_json`
+  2. 本插件自己的 `astrbot_plugin_selfie_suite_*_config.json`
+- 不再读取旧插件配置文件。
+
+数据目录行为：
+- `_resolve_component_data_dir()` 现在固定落到：
+  - `plugin_data/astrbot_plugin_selfie_suite/life_scheduler`
+  - `plugin_data/astrbot_plugin_selfie_suite/aiimg`
+- 不再回退旧插件目录。
+
+重要流程：
+- 手动自拍预览：
+  - `selfie_preview()`
+  - `_build_selfie_publish_bundle()`
+- 手动自拍说说：
+  - `publish_selfie_qzone()`
+  - `publish_selfie_post()`
+  - `_ensure_qzone_publish_ready()`
+  - `_publish_direct_to_qzone()`
+- 日程获取：
+  - `life_show()`
+  - `life_renew()`
+  - `_get_or_create_schedule()`
+  - `_coerce_schedule_for_publish()`
+- 参考图写入：
+  - `selfie_reference()`
+  - `_image_segs_to_bytes()`
+  - `ReferenceStore.set()`
+
+独立化改动要点：
+- 主入口导入已切到：
+  - `.internal_life`
+  - `.internal_aiimg`
+  - `.internal_qzone`
+- 通知目标只使用插件自身配置的 `notify_target_users` / `notify_target_groups`
+- 不再从外部 qzone sender 读取管理员或管理群
+- 外部 qzone 接管逻辑已经失效化，不参与运行时路径
+
+调试提示：
+- 导入问题优先看顶部内部模块导入和依赖安装。
+- 配置问题优先看 `_parse_embedded_json()` 和 `_resolve_component_config()`。
+- 日程不生成优先看 `SchedulerGenerator.generate_schedule()` 和 `ScheduleDataManager`。
+- 自拍不出图优先看 `ReferenceStore`、`EditRouter`、`ProviderRegistry`。
+- QQ 空间发布失败优先沿着：
+  - `_ensure_qzone_publish_ready()`
+  - `_repair_qzone_login_state()`
+  - `_publish_direct_to_qzone()`
+
+已知情况：
+- 文件里仍有少量 no-op 兼容桩，主要是为了降低这次收口改造的风险。
+- 这些桩不会再把请求路由到外部自拍插件。
