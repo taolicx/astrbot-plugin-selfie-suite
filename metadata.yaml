@@ -1,6 +1,6 @@
 name: astrbot_plugin_selfie_suite
 display_name: 自拍说说一体化套件
-desc: 内置生活日程、自拍改图与 QQ 空间发布链路的单插件整合版，兼容读取旧配置文件。
-version: v0.1.0
+desc: 内置生活日程、自拍改图与 QQ 空间发布链路的单插件整合版。
+version: v0.1.2
 author: taolicx
-repo: ""
+repo: "https://github.com/taolicx/astrbot-plugin-selfie-suite"
