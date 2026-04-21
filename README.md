@@ -7,7 +7,7 @@
 - 作者：`taolicx`
 - 仓库地址：[https://github.com/taolicx/astrbot-plugin-selfie-suite](https://github.com/taolicx/astrbot-plugin-selfie-suite)
 - 安装地址：[https://github.com/taolicx/astrbot-plugin-selfie-suite](https://github.com/taolicx/astrbot-plugin-selfie-suite)
-- 当前版本：`v0.1.6`
+- 当前版本：`v0.1.8`
 
 ## 现在的定位
 
@@ -55,6 +55,36 @@
 - `embedded_aiimg_config_json`
 
 填写后会写入本插件自己的配置文件，不依赖旧插件。
+
+文案相关补充配置：
+
+- `publish_caption_enabled`
+  - 控制 `发布自拍说说` 时是否把生成文案一并发到 QQ 空间
+  - 关闭后只发图片，不带说说文字
+- `caption_prompt_template`
+  - 控制自拍说说文案的生成风格
+- `fallback_caption_template`
+  - 当文案模型不可用或输出异常时，本地兜底会基于这个模板生成更自然的短句
+
+改图接口相关补充配置：
+
+- `aiimg_provider_type`
+  - 直接选择改图接口类型，常用 OpenAI 兼容接口建议选 `openai_chat` 或 `openai_images`
+- `aiimg_base_url`
+  - 直接填改图接口地址
+- `aiimg_api_keys`
+  - 直接填 API Key，支持一行一个或用逗号分隔多个 key
+- `aiimg_model`
+  - 直接填模型名
+- `aiimg_timeout`
+  - 改图超时秒数
+- `aiimg_default_output`
+  - 可选输出尺寸，例如 `1024x1024`
+
+如果上面这些常用字段不够，再用：
+
+- `embedded_aiimg_config_json`
+  - 适合高级链路、多个 provider、特殊字段
 
 ## 安装方式
 
