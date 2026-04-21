@@ -5,13 +5,14 @@
 - 负责把生活日程、自拍改图、QQ 空间发布三条链路编排成一个可单独安装运行的 AstrBot 插件。
 
 当前版本重点：
-- v0.1.6
+- v0.1.8
 - 对外显示名改为“日常自拍发布助手”。
 - 重点收口三件事：
   1. 旧三件套共存时的命令冲突再缩短一层
   2. 自拍动作/镜头太模板化的问题
   3. 日程明明有细节但用户界面看不出来的问题
-  4. 仓库对外信息补齐，方便用户直接从 GitHub 页识别和安装
+  4. 自拍说说文案太生硬，需要更像真人随手发，并且能单独关闭发文案
+  5. 插件设置页缺少改图 API 可视化字段
 
 本轮重点改动：
 - 命令冲突：
@@ -27,7 +28,16 @@
   - `_format_segment_lines()` 和 `_format_schedule_message()` 现在直接输出穿搭细节、地点、心情、自拍动作和光线。
   - 用户执行 `日常状态` 就能直接看出分时段差异。
 - 文案兜底：
-  - `_normalize_caption_text()` 会过滤 `I am ready to help...`、`available tools` 这类无关英文废话，自动回退到 fallback 文案。
+- `_normalize_caption_text()` 会过滤 `I am ready to help...`、`available tools` 这类无关英文废话，自动回退到 fallback 文案。
+- 文案自然化与开关：
+  - 新增 `publish_caption_enabled` 配置项。
+  - `_generate_caption()` 现在会拿到当前时段、活动、地点、心情字段来生成更自然的短句。
+  - `_build_natural_fallback_caption()` 会在模型失败时按当前时段状态拼出不那么生硬的口语化文案。
+  - `publish_selfie_post()` 会在发布前根据 `publish_caption_enabled` 决定是否把文案真正带到 QQ 空间。
+- 改图 API 可视化配置：
+  - `BridgeConfig` 新增 `aiimg_*` 一组字段，允许直接在插件设置页填 provider 类型、base_url、api_keys、model 等常用项。
+  - `_has_explicit_aiimg_ui_config()` 判断用户是否在设置页填了显式接口配置。
+  - `_apply_aiimg_ui_config()` 会把这些设置写回内部 aiimg 配置文件，并自动设置 `features.edit.chain` / `features.selfie.chain` 到当前 provider。
 
 关键函数：
 - `_apply_command_namespace()`
@@ -62,7 +72,12 @@
   - `_build_segment_render_context()`
 - 如果用户反馈“文案又冒出英文废话”，优先检查：
   - `_normalize_caption_text()`
+  - `_build_natural_fallback_caption()`
   - `fallback_caption_template`
+- 如果用户反馈“设置页还是看不到改图接口字段”或“改图没走新 API”，优先检查：
+  - `_conf_schema.json`
+  - `BridgeConfig.from_mapping()`
+  - `_apply_aiimg_ui_config()`
 - 如果用户反馈“日程还是看不出细化”，优先检查：
   - `_format_segment_lines()`
   - `_format_schedule_message()`
