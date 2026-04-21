@@ -102,15 +102,82 @@
     "type": "text",
     "default": "你要把以下自拍改图提示词优化成更适合参考图改图模型的版本。这是改图，不是文生图，必须围绕参考图中的同一人物做编辑。请只输出优化后的提示词本身，不要解释，不要分点，不要带引号。目标：真实、自然、好看、生活感强的自拍改图，人物年轻、清透、像青春少女，避免显老、过熟、姨感和影楼感。基础提示词：{base_prompt}。穿搭风格：{outfit_style}。当前时段穿搭：{outfit}。{character_traits_block}附加要求：{extra}。"
   },
+  "publish_caption_enabled": {
+    "description": "发布自拍说说时，是否把生成的文案一并发到 QQ 空间；关闭后仅发布图片。",
+    "type": "bool",
+    "default": true
+  },
   "caption_prompt_template": {
     "description": "QQ 空间自拍说说文案模板。",
     "type": "text",
-    "default": "你要为一条配有自拍的 QQ 空间说说写文案。请根据以下信息，用第一人称写一段自然、生活化、像真人随手发的短句。穿搭风格：{outfit_style}。当前时段穿搭：{outfit}。当前时段安排：{schedule}。自拍设定：{selfie_prompt}。附加要求：{extra}。要求：尽量只输出一句话，优先以“我”或“今天”开头，控制在 24 字以内，不要分点，不要解释，不要带引号。"
+    "default": "你要为一条带自拍图的 QQ 空间说说写短文案。语气要像真人当天顺手发的生活记录，轻松、自然、不端着，不要像总结、广告、提示词或文艺摘抄。优先结合当前时段的状态来写，可以带一点当下的心情，但不要故作深沉。当前时段：{segment_label}。当前活动：{segment_activity}。当前地点：{segment_location}。当前心情：{segment_mood}。穿搭风格：{outfit_style}。当前穿搭：{outfit}。当前安排：{schedule}。自拍设定：{selfie_prompt}。附加要求：{extra}。要求：只输出1句成品文案，长度控制在12到28个字，允许口语化停顿，不要分点，不要解释，不要加引号，不要出现“今日份”“营业”“氛围感”“打卡”等生硬词。"
   },
   "fallback_caption_template": {
     "description": "LLM 不可用时的回退文案模板。",
     "type": "string",
-    "default": "我今天穿着{outfit}顺手拍了一张。{schedule}"
+    "default": "{segment_label}|{segment_activity}|{segment_location}|{segment_mood}|{outfit}"
+  },
+  "aiimg_provider_type": {
+    "description": "改图主接口类型。常用 OpenAI 兼容改图建议选 openai_chat 或 openai_images。",
+    "type": "string",
+    "options": [
+      "",
+      "openai_chat",
+      "openai_images",
+      "gitee_images",
+      "gemini_openai_images",
+      "gemini_native",
+      "grok_images",
+      "grok2api_images",
+      "modelscope_openai_images",
+      "openai_full_url_images"
+    ],
+    "default": ""
+  },
+  "aiimg_provider_id": {
+    "description": "改图接口的 provider_id，默认可留空，插件会自动写成 selfie_suite_main。",
+    "type": "string",
+    "default": ""
+  },
+  "aiimg_base_url": {
+    "description": "OpenAI 兼容改图接口常用的 base_url，例如 https://api.openai.com/v1。",
+    "type": "string",
+    "default": ""
+  },
+  "aiimg_api_url": {
+    "description": "少数 provider 使用 api_url 而不是 base_url 时填写这里。",
+    "type": "string",
+    "default": ""
+  },
+  "aiimg_api_keys": {
+    "description": "改图接口 API Key，支持填一个或多个，多个可用换行、逗号或分号分隔。",
+    "type": "text",
+    "default": ""
+  },
+  "aiimg_model": {
+    "description": "改图接口使用的模型名。",
+    "type": "string",
+    "default": ""
+  },
+  "aiimg_timeout": {
+    "description": "改图请求超时时间，单位秒。",
+    "type": "int",
+    "default": 120
+  },
+  "aiimg_default_output": {
+    "description": "可选：默认输出规格，例如 1024x1024。",
+    "type": "string",
+    "default": ""
+  },
+  "aiimg_proxy_url": {
+    "description": "可选：改图接口请求代理地址。",
+    "type": "string",
+    "default": ""
+  },
+  "aiimg_supports_edit": {
+    "description": "当前接口是否支持改图；大多数改图接口保持开启即可。",
+    "type": "bool",
+    "default": true
   },
   "embedded_life_config_json": {
     "description": "可选：直接粘贴本插件使用的 life JSON 配置内容。",
