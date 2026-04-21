@@ -6,12 +6,13 @@
 - 目标是替代“life_scheduler + gitee_aiimg + qzone/selfie_bridge”多插件组合，同时尽量能与旧插件共存。
 
 当前版本重点：
-- v0.1.6
+- v0.1.8
 - 对外显示名改为“日常自拍发布助手”。
 - 重点解决两个问题：
   1. 和旧三件套同时安装时的命令/注入冲突
   2. 自拍动作老一套、日程时段不够细的问题
-  3. 仓库页信息不完整，补齐作者和安装说明
+  3. 自拍说说文案太生硬，改成更自然的生活化短句，并加上“是否发布文案”开关
+  4. 设置页看不到改图 API 字段，补成可直接填写接口、Key、模型的可视化配置
 
 模块结构：
 - `main.py`
@@ -43,7 +44,16 @@
   - 新增 `_COMMON_SEGMENT_VARIATION_POOL`，让日程细节不只依赖单段的少量样本
   - 同一天生成稳定，不再完全依赖模型格式
 - 文案兜底：
-  - `_normalize_caption_text()` 会拦截 `I am ready to help...` 这一类英文废话，自动回退本地文案模板
+- `_normalize_caption_text()` 会拦截 `I am ready to help...` 这一类英文废话，自动回退本地文案模板
+- 自拍说说文案开关：
+  - 新增 `publish_caption_enabled`
+  - 关闭后 `发布自拍说说` 仍生成图片，但发布到 QQ 空间时不再附带文案
+- 文案自然化：
+  - `caption_prompt_template` 改成围绕当前时段、地点、活动、心情写真人短句
+  - `_build_natural_fallback_caption()` 用当前时段信息拼自然口语化兜底文案
+- 改图 API 设置页：
+  - 新增 `aiimg_provider_type / aiimg_provider_id / aiimg_base_url / aiimg_api_url / aiimg_api_keys / aiimg_model / aiimg_timeout / aiimg_default_output / aiimg_proxy_url / aiimg_supports_edit`
+  - `_apply_aiimg_ui_config()` 会把这些字段合并进内部 aiimg 配置文件，并自动写入 `features.edit.chain` 与 `features.selfie.chain`
 - 用户可见输出：
   - `日常状态` 现在直接展示当前时段与全时段的穿搭细节、地点、心情、自拍动作和光线
 - suite 单装兜底：
