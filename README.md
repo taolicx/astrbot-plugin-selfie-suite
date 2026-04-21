@@ -2,6 +2,13 @@
 
 这是“日常自拍发布助手”的独立版。
 
+## 仓库信息
+
+- 作者：`taolicx`
+- 仓库地址：[https://github.com/taolicx/astrbot-plugin-selfie-suite](https://github.com/taolicx/astrbot-plugin-selfie-suite)
+- 安装地址：[https://github.com/taolicx/astrbot-plugin-selfie-suite](https://github.com/taolicx/astrbot-plugin-selfie-suite)
+- 当前版本：`v0.1.6`
+
 ## 现在的定位
 
 - 只装这一个插件即可运行自拍说说主链
@@ -48,6 +55,14 @@
 - `embedded_aiimg_config_json`
 
 填写后会写入本插件自己的配置文件，不依赖旧插件。
+
+## 安装方式
+
+在 AstrBot 插件安装页直接填写：
+
+- `https://github.com/taolicx/astrbot-plugin-selfie-suite`
+
+安装完成后，优先使用这一套新命令，不要和旧版同类插件命令混用。
 
 ## 注意
 
