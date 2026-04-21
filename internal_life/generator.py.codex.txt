@@ -1,0 +1,45 @@
+文件：internal_life/generator.py
+
+作用：
+- 负责把 life 配置、上下文、LLM 返回的轻量 guidance 和本地模板组合成全天固定窗口日程。
+- 这一版不依赖模型严格输出 JSON，而是让模型只给短句线索，再由代码组装全天摘要和 6 段细化时段。
+
+当前版本重点：
+- v0.1.4
+- 继续强化“同一天稳定、不同时间段足够细、跨天不要太重复”。
+
+本轮重点改动：
+- 保留 `_DEFAULT_POOL`：
+  - 当 suite 独立安装、life 配置缺少 `pool` 时，仍能稳定生成多样化日程。
+- 保留 `_SEGMENT_VARIATION_POOL`：
+  - 为 `wake_up / morning_outing / daytime_work / after_work / home_evening / late_night` 六段分别提供活动、地点、情绪、自拍场景、动作、光线、caption 提示池。
+- 新增 `_COMMON_SEGMENT_VARIATION_POOL`：
+  - 给 activity/location/mood/scene/pose/lighting/caption 再补一层全局样本。
+  - 这样每个时段不只依赖自己那一小组固定文本，变化更自然。
+- `_pick_segment_pool_value()`：
+  - 现在会把“分段专属池 + 全局补充池”合并后再做确定性选择。
+  - 仍使用 `日期 + 时段 key + channel + 当天主题/风格/类型` 做 seed，保证同一天稳定。
+
+现在的行为特点：
+- 同一天、同一窗口反复生成，整体风格和分段动作更稳定。
+- 同一天不同时间段不再只是一套模板复制，而是会有不同的：
+  - 活动
+  - 地点
+  - 情绪
+  - 自拍场景
+  - 自拍动作
+  - 自拍光线
+  - caption hint
+- 因为增加了全局补充池，即使用户的配置里自定义 pool 不多，也不容易马上显得重复。
+
+调试提示：
+- 如果用户说“日程还是太粗”，先看：
+  - `_SEGMENT_VARIATION_POOL`
+  - `_COMMON_SEGMENT_VARIATION_POOL`
+  - `_apply_local_segment_variation()`
+- 如果用户说“同一天刷新后变化太大”，先看：
+  - `_pick_diversity()`
+  - `_pick_segment_pool_value()`
+- 如果用户说“插件单装就报配置缺字段”，先看：
+  - `_DEFAULT_POOL`
+  - `main.py` 里的 `_default_life_config()` 和 `_resolve_component_config()`

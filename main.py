@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import hashlib
 import json
 import re
 from collections.abc import Iterable
@@ -44,7 +45,9 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
     AiocqhttpMessageEvent,
 )
 from astrbot.core.provider.entities import ProviderRequest
+from astrbot.core.star.filter.command import CommandFilter
 from astrbot.core.star.star import StarMetadata, star_registry
+from astrbot.core.star.star_handler import star_handlers_registry
 from astrbot.core.star.star_tools import StarTools
 
 # AstrBot 加载单个插件时，不一定会把整个 plugins 根目录加入 sys.path。
@@ -69,6 +72,182 @@ PLUGIN_LOG_PREFIX = "[SelfieSuite]"
 INTERNAL_LIFE_CONFIG_NAME = f"{PLUGIN_ID}_life_config.json"
 INTERNAL_QZONE_CONFIG_NAME = f"{PLUGIN_ID}_qzone_config.json"
 INTERNAL_AIIMG_CONFIG_NAME = f"{PLUGIN_ID}_aiimg_config.json"
+SUITE_COMMAND_LIFE_SHOW = "日常状态"
+SUITE_COMMAND_LIFE_RENEW = "刷新日常状态"
+SUITE_COMMAND_LIFE_TIME = "日常刷新时间"
+SUITE_COMMAND_SELFIE_REFERENCE = "自拍参考图"
+SUITE_COMMAND_SELFIE_PREVIEW = "生成自拍"
+SUITE_COMMAND_SELFIE_POST = "发布自拍说说"
+LEGACY_CONFLICT_PLUGIN_IDS = {
+    "astrbot_plugin_life_scheduler",
+    "astrbot_plugin_life_scheduler_enhanced",
+    "astrbot_plugin_gitee_aiimg",
+    "astrbot_plugin_qzone",
+    "astrbot_plugin_qzone_selfie_bridge",
+}
+_DEFAULT_LIFE_POOL = {
+    "daily_themes": [
+        "清爽出门日",
+        "图书馆学习日",
+        "校园通勤日",
+        "轻办公日",
+        "咖啡店停留日",
+        "日常 errands 日",
+        "居家整理日",
+        "晚间疗愈日",
+        "超市补货日",
+        "朋友见面日",
+        "散步放空日",
+        "轻社交日",
+    ],
+    "mood_colors": [
+        "清透",
+        "轻盈",
+        "柔和",
+        "安静",
+        "元气",
+        "松弛",
+        "温暖",
+        "明快",
+        "自在",
+        "舒服",
+        "少女感",
+        "清醒",
+    ],
+    "outfit_styles": [
+        "自然日常风",
+        "清甜少女风",
+        "校园通学风",
+        "韩系轻通勤风",
+        "简洁牛仔少女风",
+        "轻薄居家风",
+        "清爽夏日风",
+        "针织软妹风",
+        "休闲元气风",
+        "白桃清新风",
+        "奶油轻柔风",
+        "干净学生感",
+    ],
+    "schedule_types": [
+        "规律三餐型",
+        "通勤学习型",
+        "轻办公型",
+        "外出办事型",
+        "半天外出半天居家型",
+        "居家恢复型",
+        "晚间放松型",
+        "轻社交型",
+    ],
+}
+_SELFIE_VARIANT_POOLS: dict[str, dict[str, list[str]]] = {
+    "wake_up": {
+        "pose": ["站在窗边半身自拍", "坐在床边微侧身自拍", "对镜举手机轻轻抬下巴自拍", "整理头发时顺手自拍"],
+        "camera": ["近距离手机前置视角", "镜前半身构图", "窗边自然光上半身构图", "略微俯拍的日常自拍角度"],
+        "expression": ["刚清醒后的柔和表情", "带一点早晨松弛感的浅笑", "安静自然的放空眼神", "刚洗漱完的清爽状态"],
+        "action": ["另一只手整理睡乱的头发", "一只手扶着窗帘边", "手里拿着发圈或梳子", "肩膀微微放松靠近镜面"],
+        "scene": ["卧室晨光感明显", "洗漱后的小清醒状态", "床边或镜前的真实生活感", "像早上顺手记录一下自己"],
+        "prop": ["枕头或床边软毯", "发圈、小夹子", "洗漱后的毛巾或护肤品", "窗边柔和背景"],
+    },
+    "morning_outing": {
+        "pose": ["玄关镜前站姿自拍", "边走边回头看镜头", "等电梯时单手举手机自拍", "背上包后轻侧身自拍"],
+        "camera": ["全身到半身的通勤构图", "电梯镜面反射构图", "走廊或楼下的自然站拍视角", "上半身近景通勤自拍"],
+        "expression": ["准备出门时的利落状态", "清醒又轻快的表情", "带一点赶时间感的自然神态", "出门前确认穿搭时的轻松表情"],
+        "action": ["一只手拎包或扶肩带", "另一只手轻碰头发", "手上拿钥匙或咖啡", "步伐刚起的瞬间定格"],
+        "scene": ["出门前的玄关生活感", "通勤路上的真实瞬间", "楼道或电梯里的随手记录", "白天刚开始时的清爽感"],
+        "prop": ["帆布包或小单肩包", "钥匙、工卡或耳机", "咖啡杯或早餐袋", "电梯镜面或楼道墙面"],
+    },
+    "daytime_work": {
+        "pose": ["坐在桌边半身自拍", "洗手间镜前自然自拍", "靠墙站着微侧身自拍", "咖啡店座位边举手机自拍"],
+        "camera": ["桌边近景构图", "镜前半身自拍构图", "靠窗中景构图", "工作间隙的上半身自拍视角"],
+        "expression": ["专注后稍微放松的表情", "白天保持精神的自然神态", "忙里偷闲时的轻浅微笑", "清醒但不紧绷的状态"],
+        "action": ["手边放着电脑或本子", "一只手搭在桌边", "另一只手扶着包带或衣角", "刚放下手机和手边物品的瞬间"],
+        "scene": ["白天工作学习间隙", "洗手间镜前快速留影", "咖啡店或自习区短暂停顿", "普通人白天顺手自拍的真实状态"],
+        "prop": ["电脑、本子、耳机", "咖啡杯或水杯", "托特包或工位小物", "桌面文件或文具"],
+    },
+    "after_work": {
+        "pose": ["电梯镜前自拍", "街边橱窗反射自拍", "单肩背包回头自拍", "站在地铁门边轻侧身自拍"],
+        "camera": ["傍晚反射构图", "电梯镜面半身构图", "街边站立上半身自拍", "地铁或商场灯光下的近景自拍"],
+        "expression": ["下班后的松口气表情", "微微疲惫但轻松的神态", "傍晚收工时的放松状态", "回家路上的真实生活感"],
+        "action": ["一只手拎包", "另一只手拨头发", "手里拿着外带饮料", "刚停下脚步顺手拍一下"],
+        "scene": ["下班返程的傍晚氛围", "商场或地铁里的真实生活场景", "街灯亮起时的随手自拍", "回家路上的轻松状态"],
+        "prop": ["包、外套、耳机", "饮料杯或购物袋", "地铁扶手或电梯镜面", "傍晚街景"],
+    },
+    "home_evening": {
+        "pose": ["坐在沙发边放松自拍", "在镜前换上居家衣服后自拍", "靠在桌边半身自拍", "洗完澡前后在房间里轻侧身自拍"],
+        "camera": ["室内暖光近景构图", "镜前半身构图", "沙发边坐姿中景", "房间里轻松的生活化自拍视角"],
+        "expression": ["回家后的舒缓神态", "终于松下来时的轻浅笑意", "柔和放空的表情", "很生活化的自然状态"],
+        "action": ["手里拿着发夹或手机壳", "一只手扶着椅背", "腿微微交叠坐着", "轻轻拨开发丝看向镜头"],
+        "scene": ["到家后换上更轻薄舒适的衣服", "晚饭后在家随手拍一张", "房间或客厅里很真实的少女居家状态", "比白天更松弛、更清凉一点的家居场景"],
+        "prop": ["抱枕、发夹、小夜灯", "桌边杯子或零食", "沙发、镜子、床边背景", "居家拖鞋或薄开衫"],
+    },
+    "late_night": {
+        "pose": ["靠在床头半身自拍", "台灯旁坐姿自拍", "窗帘边低角度自拍", "睡前侧身对镜自拍"],
+        "camera": ["夜间近景柔光构图", "床边半身自拍构图", "台灯侧光上半身构图", "低饱和夜间生活感视角"],
+        "expression": ["睡前安静的神态", "有点困但很放松的表情", "夜里收尾时的柔和眼神", "不刻意营业的自然状态"],
+        "action": ["手里抱着枕头或薄毯", "一只手托着下巴", "手边放着护肤品或水杯", "肩颈放松地靠着床头"],
+        "scene": ["夜里准备休息前的安静房间", "台灯和床边形成的柔和氛围", "睡前顺手留一张照片", "比白天更私密但仍然真实克制的居家夜间状态"],
+        "prop": ["枕头、薄毯、小夜灯", "水杯或护肤品", "床头背景", "窗帘和暖色灯光"],
+    },
+}
+_SELFIE_VARIANT_COMMON_POOL: dict[str, list[str]] = {
+    "pose": [
+        "身体略微前倾，把手机举到脸侧顺手自拍",
+        "坐姿放松地把腿收一点，手机靠近肩侧自拍",
+        "半侧身让镜头带到肩线和腰线，不是正面站桩",
+        "一边看向镜头一边整理头发，像刚停下来顺手拍到",
+    ],
+    "camera": [
+        "不是完全正对镜面的生活化斜侧构图",
+        "带一点近大远小的手机前置近景构图",
+        "保留环境信息的半身到三分之二身位构图",
+        "像朋友视角里顺手拍下的松弛自拍角度",
+    ],
+    "expression": [
+        "轻松自然，不刻意营业的表情",
+        "有一点当下生活情绪的浅笑",
+        "眼神放松、像刚想到什么一样自然",
+        "不夸张、不成熟、偏年轻感的清爽表情",
+    ],
+    "action": [
+        "手上有自然的小动作，不要僵硬垂手站着",
+        "肩膀和腰背有轻微重心变化，像真的刚停下来",
+        "让手去碰衣角、包带、发丝或杯子，保留生活动作",
+        "保留走动、坐下、回头或靠住某处时的瞬间感",
+    ],
+    "scene": [
+        "画面像今天这个时段里真实会发生的一张自拍，不要棚拍感",
+        "环境里要有一点当前地点的生活痕迹，不要空背景摆拍",
+        "整体更像普通人当天随手留影，而不是模板化网图",
+        "把视线和姿态放进场景里，不要只剩一张正脸大头照",
+    ],
+    "prop": [
+        "可以带上手机壳、耳机、杯子、发夹之类的小物",
+        "让道具和环境都服务于当前时段，不要无关商务摆设",
+        "如果在家可以保留抱枕、拖鞋、小夜灯等真实居家细节",
+        "如果在外面可以保留包、工卡、饮料、钥匙等随身物",
+    ],
+}
+
+
+def _default_life_config() -> dict[str, Any]:
+    return {
+        "schedule_time": "07:00",
+        "reference_history_days": 3,
+        "reference_recent_count": 10,
+        "schedule_provider_id": "",
+        "pool": json.loads(json.dumps(_DEFAULT_LIFE_POOL, ensure_ascii=False)),
+    }
+
+
+def _merge_config_defaults(raw: dict[str, Any] | None, defaults: dict[str, Any]) -> dict[str, Any]:
+    merged = json.loads(json.dumps(defaults, ensure_ascii=False))
+    source = raw or {}
+    for key, value in source.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key].update(value)
+        else:
+            merged[key] = value
+    return merged
 
 if False:
     # 优先兼容增强版。它在 GitHub 安装场景下通常使用根模块结构。
@@ -129,6 +308,8 @@ class BridgeConfig:
     send_preview_to_chat: bool
     regenerate_life_when_missing: bool
     refresh_life_before_publish: bool
+    enable_llm_state_injection: bool
+    suppress_injection_when_legacy_plugins_present: bool
     append_selfie_to_existing_images: bool
     custom_publish_enabled: bool
     custom_publish_times: tuple[str, ...]
@@ -193,6 +374,15 @@ class BridgeConfig:
             refresh_life_before_publish=bool(
                 data.get("refresh_life_before_publish", False)
             ),
+            enable_llm_state_injection=bool(
+                data.get("enable_llm_state_injection", True)
+            ),
+            suppress_injection_when_legacy_plugins_present=bool(
+                data.get(
+                    "suppress_injection_when_legacy_plugins_present",
+                    True,
+                )
+            ),
             append_selfie_to_existing_images=bool(
                 data.get("append_selfie_to_existing_images", True)
             ),
@@ -221,12 +411,14 @@ class BridgeConfig:
                 data.get("selfie_prompt_template")
                 or (
                     "请基于提供的自拍参考图完成一次自然、真实、生活感强的自拍改图。"
-                    "必须保持同一人物的身份一致性、脸部特征和主体关系。"
+                    "这是改图，不是文生图，必须保持同一人物的身份一致性、脸部特征和主体关系。"
                     "穿搭风格：{outfit_style}。"
                     "今日穿搭：{outfit}。"
                     "{character_traits_block}"
                     "请重点调整穿搭、发型细节、表情、姿态、背景氛围与镜头质感。"
-                    "整体效果要像本人随手拍下的真实生活自拍，不要变成陌生人，也不要做成纯文生图感。"
+                    "整体效果必须像本人在真实生活里顺手拍下的自拍，不要变成陌生人，也不要做成纯文生图感。"
+                    "禁止固定站桩、僵硬镜前摆拍、成熟职场写真、过熟妆造、显老或姨感状态。"
+                    "优先保留青春少女感、轻松生活感、自然手部动作和贴近当下时段的真实场景。"
                     "{extra}"
                 )
             ),
@@ -358,6 +550,7 @@ class QzoneSelfieBridgePlugin(Star):
         self.data_dir = Path(str(StarTools.get_data_dir(PLUGIN_ID)))
 
         plugins_dir = Path(__file__).resolve().parent.parent
+        self.plugins_root = plugins_dir
         self.astrbot_data_dir = plugins_dir.parent
         # 某些启动阶段会先调用 schema 刷新逻辑，这里提前暴露 data_root 兼容旧代码路径。
         self.data_root = self.astrbot_data_dir
@@ -365,6 +558,10 @@ class QzoneSelfieBridgePlugin(Star):
         self.plugin_data_root = self.astrbot_data_dir / "plugin_data"
         self.selfie_suite_data_dir = self.plugin_data_root / PLUGIN_ID
         self.selfie_suite_data_dir.mkdir(parents=True, exist_ok=True)
+        self.selfie_variant_state_path = (
+            self.selfie_suite_data_dir / "selfie_variant_state.json"
+        )
+        self._legacy_conflict_plugins: tuple[str, ...] = ()
 
         self._publish_lock = asyncio.Lock()
         self._schedule_timezone = self._resolve_schedule_timezone()
@@ -402,13 +599,16 @@ class QzoneSelfieBridgePlugin(Star):
         own_path = self.config_dir / f"{PLUGIN_ID}_{scope}_config.json"
         embedded_data = self._parse_embedded_json(embedded_text, scope)
         if embedded_data is not None:
-            self._ensure_json_file(own_path, embedded_data)
-            return embedded_data, own_path
+            merged = _merge_config_defaults(embedded_data, default_data or {})
+            self._ensure_json_file(own_path, merged)
+            return merged, own_path
 
         if own_path.exists():
-            return self._read_json(own_path), own_path
+            merged = _merge_config_defaults(self._read_json(own_path), default_data or {})
+            self._ensure_json_file(own_path, merged)
+            return merged, own_path
 
-        data = dict(default_data or {})
+        data = _merge_config_defaults({}, default_data or {})
         self._ensure_json_file(own_path, data)
         return data, own_path
 
@@ -421,6 +621,269 @@ class QzoneSelfieBridgePlugin(Star):
         target.mkdir(parents=True, exist_ok=True)
         return target
 
+    def _detect_legacy_conflict_plugins(self) -> tuple[str, ...]:
+        found: list[str] = []
+        for plugin_id in sorted(LEGACY_CONFLICT_PLUGIN_IDS):
+            if plugin_id == PLUGIN_ID:
+                continue
+            if (self.plugins_root / plugin_id).exists():
+                found.append(plugin_id)
+        return tuple(found)
+
+    def _should_inject_llm_state(self) -> bool:
+        if not self.config.enable_llm_state_injection:
+            return False
+        if (
+            self.config.suppress_injection_when_legacy_plugins_present
+            and self._legacy_conflict_plugins
+        ):
+            return False
+        return True
+
+    def _rename_handler_command(
+        self,
+        method_name: str,
+        command_name: str,
+        aliases: set[str] | None = None,
+    ) -> None:
+        handler = getattr(type(self), method_name, None)
+        if handler is None:
+            return
+        handler_full_name = f"{handler.__module__}_{handler.__name__}"
+        handler_md = star_handlers_registry.get_handler_by_full_name(handler_full_name)
+        if handler_md is None:
+            return
+        for event_filter in handler_md.event_filters:
+            if isinstance(event_filter, CommandFilter):
+                event_filter.command_name = command_name
+                event_filter.alias = set(aliases or set())
+                event_filter._cmpl_cmd_names = None
+
+    def _apply_command_namespace(self) -> None:
+        # 命令统一加上 suite 前缀，避免和旧的三件套抢占同名命令。
+        # 即使源码装饰器被旧安装缓存，初始化后也会再次强制修正命令名。
+        self._rename_handler_command(
+            "life_show",
+            SUITE_COMMAND_LIFE_SHOW,
+            {"查看日常状态", "suite life show"},
+        )
+        self._rename_handler_command(
+            "life_renew",
+            SUITE_COMMAND_LIFE_RENEW,
+            {"重写日常状态", "suite life renew"},
+        )
+        self._rename_handler_command(
+            "life_time",
+            SUITE_COMMAND_LIFE_TIME,
+            {"设置日常刷新时间", "suite life time"},
+        )
+        self._rename_handler_command(
+            "selfie_reference",
+            SUITE_COMMAND_SELFIE_REFERENCE,
+            {"设置自拍参考图", "清空自拍参考图", "suite selfie ref"},
+        )
+        self._rename_handler_command(
+            "selfie_preview",
+            SUITE_COMMAND_SELFIE_PREVIEW,
+            {"生成自拍预览", "自拍预览生成", "suite selfie"},
+        )
+        self._rename_handler_command(
+            "publish_selfie_qzone",
+            SUITE_COMMAND_SELFIE_POST,
+            {"发自拍说说", "发布自拍空间", "suite selfie post"},
+        )
+
+    def _load_selfie_variant_state(self) -> dict[str, Any]:
+        if not self.selfie_variant_state_path.exists():
+            return {"daily_variants": {}, "recent_signatures": []}
+        try:
+            raw = json.loads(
+                self.selfie_variant_state_path.read_text(encoding="utf-8-sig")
+            )
+        except Exception:
+            return {"daily_variants": {}, "recent_signatures": []}
+        if not isinstance(raw, dict):
+            return {"daily_variants": {}, "recent_signatures": []}
+        daily_variants = raw.get("daily_variants")
+        recent_signatures = raw.get("recent_signatures")
+        return {
+            "daily_variants": daily_variants if isinstance(daily_variants, dict) else {},
+            "recent_signatures": recent_signatures
+            if isinstance(recent_signatures, list)
+            else [],
+        }
+
+    def _save_selfie_variant_state(self, state: dict[str, Any]) -> None:
+        self.selfie_variant_state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.selfie_variant_state_path.write_text(
+            json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def _variant_signature(variant: dict[str, str]) -> str:
+        return "|".join(
+            [
+                variant.get("pose", ""),
+                variant.get("camera", ""),
+                variant.get("expression", ""),
+                variant.get("action", ""),
+                variant.get("scene", ""),
+                variant.get("prop", ""),
+            ]
+        )
+
+    @staticmethod
+    def _merged_selfie_variant_pool(
+        pool: dict[str, list[str]] | None,
+    ) -> dict[str, list[str]]:
+        merged: dict[str, list[str]] = {}
+        source = pool or {}
+        for key, common_items in _SELFIE_VARIANT_COMMON_POOL.items():
+            unique: list[str] = []
+            for item in list(source.get(key) or []) + list(common_items):
+                text = str(item).strip()
+                if text and text not in unique:
+                    unique.append(text)
+            merged[key] = unique or list(common_items)
+        return merged
+
+    def _pick_selfie_variant(
+        self,
+        schedule: ScheduleData,
+        segment: Any | None,
+    ) -> dict[str, str]:
+        segment_key = str(getattr(segment, "key", "") or "daytime_work").strip()
+        pool = self._merged_selfie_variant_pool(
+            _SELFIE_VARIANT_POOLS.get(segment_key) or _SELFIE_VARIANT_POOLS["daytime_work"]
+        )
+        state = self._load_selfie_variant_state()
+        daily_variants = state["daily_variants"]
+        recent_signatures = [
+            str(item).strip()
+            for item in state.get("recent_signatures", [])
+            if str(item).strip()
+        ][-12:]
+        daily_key = f"{schedule.date}:{segment_key}"
+        cached = daily_variants.get(daily_key)
+        if isinstance(cached, dict) and cached.get("segment_key") == segment_key:
+            return {
+                "pose": str(cached.get("pose") or ""),
+                "camera": str(cached.get("camera") or ""),
+                "expression": str(cached.get("expression") or ""),
+                "action": str(cached.get("action") or ""),
+                "scene": str(cached.get("scene") or ""),
+                "prop": str(cached.get("prop") or ""),
+            }
+
+        base_seed = (
+            f"{schedule.date}|{segment_key}|{schedule.outfit_style}|"
+            f"{getattr(segment, 'label', '')}|{getattr(segment, 'outfit', '')}|"
+            f"{getattr(segment, 'activity', '')}"
+        )
+
+        candidate: dict[str, str] | None = None
+        for offset in range(8):
+            digest = hashlib.sha256(f"{base_seed}|{offset}".encode("utf-8")).hexdigest()
+            variant = {
+                "pose": pool["pose"][int(digest[0:8], 16) % len(pool["pose"])],
+                "camera": pool["camera"][int(digest[8:16], 16) % len(pool["camera"])],
+                "expression": pool["expression"][
+                    int(digest[16:24], 16) % len(pool["expression"])
+                ],
+                "action": pool["action"][int(digest[24:32], 16) % len(pool["action"])],
+                "scene": pool["scene"][int(digest[32:40], 16) % len(pool["scene"])],
+                "prop": pool["prop"][int(digest[40:48], 16) % len(pool["prop"])],
+            }
+            if self._variant_signature(variant) not in recent_signatures:
+                candidate = variant
+                break
+            if candidate is None:
+                candidate = variant
+
+        chosen = candidate or {
+            "pose": pool["pose"][0],
+            "camera": pool["camera"][0],
+            "expression": pool["expression"][0],
+            "action": pool["action"][0],
+            "scene": pool["scene"][0],
+            "prop": pool["prop"][0],
+        }
+        signature = self._variant_signature(chosen)
+        recent_signatures.append(signature)
+        state["recent_signatures"] = recent_signatures[-12:]
+        state["daily_variants"] = {
+            key: value
+            for key, value in daily_variants.items()
+            if key.split(":", 1)[0] >= (
+                dt.date.fromisoformat(schedule.date) - dt.timedelta(days=7)
+            ).isoformat()
+        }
+        state["daily_variants"][daily_key] = {
+            "segment_key": segment_key,
+            **chosen,
+        }
+        self._save_selfie_variant_state(state)
+        return chosen
+
+    def _build_segment_render_context(
+        self,
+        schedule: ScheduleData,
+        *,
+        moment: dt.datetime | None = None,
+        extra: str | None = None,
+    ) -> dict[str, str]:
+        moment = moment or dt.datetime.now()
+        segment = schedule.active_segment(moment) if hasattr(schedule, "active_segment") else None
+        variant = self._pick_selfie_variant(schedule, segment)
+        outfit_text = schedule.outfit or "日常穿搭"
+        schedule_text = schedule.schedule or "今天按计划生活"
+        extra_parts: list[str] = []
+        if extra:
+            extra_parts.append(extra.strip())
+        if segment is not None:
+            outfit_text = (
+                getattr(segment, "outfit_detail_text", lambda: "")()  # type: ignore[misc]
+                or getattr(segment, "outfit", "")
+                or outfit_text
+            )
+            schedule_text = "；".join(
+                part
+                for part in [
+                    f"{segment.start_time}-{segment.end_time} {segment.label}".strip(),
+                    f"活动：{getattr(segment, 'activity', '')}".strip("："),
+                    f"地点：{getattr(segment, 'location', '')}".strip("："),
+                ]
+                if part and not part.endswith("：")
+            )
+            extra_parts.extend(
+                part
+                for part in [
+                    f"当前时段穿搭：{outfit_text}",
+                    f"当前时段氛围：{getattr(segment, 'mood', '')}",
+                    f"自拍场景：{getattr(segment, 'selfie_scene', '')}",
+                    f"自拍动作：{variant['pose']}",
+                    f"镜头构图：{variant['camera']}",
+                    f"表情状态：{variant['expression']}",
+                    f"身体与手部动作：{variant['action']}",
+                    f"环境补充：{variant['scene']}",
+                    f"道具细节：{variant['prop']}",
+                    f"发型妆面与光线：{getattr(segment, 'selfie_visual_text', lambda: '')()}",
+                    getattr(segment, "selfie_prompt_hint", ""),
+                ]
+                if part and str(part).strip()
+            )
+        extra_parts.append(
+            "人物必须保持年轻自然的青春少女感，避免显老、过熟、姨感、浓妆和职业摆拍。"
+        )
+        extra_parts.append("动作和镜头不要总是重复，要像真实生活里顺手拍到的瞬间。")
+        return {
+            "outfit_style": schedule.outfit_style or "自然日常风",
+            "outfit": outfit_text,
+            "schedule": schedule_text,
+            "extra": "；".join(part.strip("； ") for part in extra_parts if part and part.strip()),
+        }
+
     def _current_anchor_time(self) -> str:
         return str(self.life_config.get("schedule_time") or "07:00")
 
@@ -431,7 +894,7 @@ class QzoneSelfieBridgePlugin(Star):
         self.life_config_raw, self.life_config_path = self._resolve_component_config(
             scope="life",
             embedded_text=self.config.embedded_life_config_json,
-            default_data={"schedule_time": "07:00"},
+            default_data=_default_life_config(),
         )
         self.qzone_config_raw, self.qzone_config_path = self._resolve_component_config(
             scope="qzone",
@@ -484,6 +947,14 @@ class QzoneSelfieBridgePlugin(Star):
             registry=self.registry,
         )
         self.refs = ReferenceStore(self.gitee_data_dir)
+        self._apply_command_namespace()
+        self._legacy_conflict_plugins = self._detect_legacy_conflict_plugins()
+        if self._legacy_conflict_plugins:
+            logger.info(
+                "%s coexist mode enabled: detected legacy plugins=%s",
+                PLUGIN_LOG_PREFIX,
+                ",".join(self._legacy_conflict_plugins),
+            )
 
         self._refresh_optimizer_provider_schema_options()
         self._start_custom_publish_scheduler()
@@ -521,23 +992,46 @@ class QzoneSelfieBridgePlugin(Star):
     def _format_segment_lines(data: ScheduleData) -> str:
         lines: list[str] = []
         for segment in getattr(data, "segments", []) or []:
+            outfit_detail = getattr(segment, "outfit_detail_text", lambda: "")()
+            selfie_detail = "，".join(
+                part
+                for part in [
+                    getattr(segment, "selfie_scene", "") or "",
+                    getattr(segment, "selfie_pose", "") or "",
+                    getattr(segment, "selfie_lighting", "") or "",
+                ]
+                if part
+            )
             lines.append(
                 f"- {segment.start_time}-{segment.end_time} {segment.label}\n"
-                f"  穿搭：{segment.outfit or '未填写'}\n"
+                f"  穿搭：{outfit_detail or segment.outfit or '未填写'}\n"
                 f"  安排：{segment.activity or '未填写'}\n"
                 f"  地点：{segment.location or '未填写'}\n"
-                f"  自拍：{segment.selfie_scene or '未填写'}"
+                f"  心情：{segment.mood or '未填写'}\n"
+                f"  自拍：{selfie_detail or '未填写'}"
             )
         return "\n".join(lines) if lines else "暂无分时段详情"
 
     def _format_schedule_message(self, data: ScheduleData, now: dt.datetime) -> str:
         current_segment = data.active_segment(now) if hasattr(data, "active_segment") else None
         if current_segment:
+            current_outfit = getattr(current_segment, "outfit_detail_text", lambda: "")()
+            current_selfie = "，".join(
+                part
+                for part in [
+                    getattr(current_segment, "selfie_scene", "") or "",
+                    getattr(current_segment, "selfie_pose", "") or "",
+                    getattr(current_segment, "selfie_lighting", "") or "",
+                ]
+                if part
+            )
             current_text = (
                 f"{current_segment.start_time}-{current_segment.end_time} {current_segment.label}\n"
-                f"穿搭：{current_segment.outfit or '未填写'}\n"
+                f"穿搭：{current_outfit or current_segment.outfit or '未填写'}\n"
                 f"安排：{current_segment.activity or '未填写'}\n"
-                f"自拍：{current_segment.selfie_scene or '未填写'}"
+                f"地点：{current_segment.location or '未填写'}\n"
+                f"心情：{current_segment.mood or '未填写'}\n"
+                f"自拍：{current_selfie or '未填写'}"
             )
         else:
             current_text = "暂无当前时段"
@@ -553,6 +1047,8 @@ class QzoneSelfieBridgePlugin(Star):
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
+        if not self._should_inject_llm_state():
+            return
         now = dt.datetime.now()
         data = self.life_data_mgr.get(now)
         if not data:
@@ -587,7 +1083,7 @@ class QzoneSelfieBridgePlugin(Star):
         )
         req.system_prompt += inject_text
 
-    @filter.command("查看日程", alias={"life show"})
+    @filter.command(SUITE_COMMAND_LIFE_SHOW, alias={"查看日常状态", "suite life show"})
     async def life_show(self, event: AstrMessageEvent):
         now = dt.datetime.now()
         data = self.life_data_mgr.get(now)
@@ -601,7 +1097,7 @@ class QzoneSelfieBridgePlugin(Star):
         yield event.plain_result(self._format_schedule_message(data, now))
 
     @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.command("重写日程", alias={"life renew"})
+    @filter.command(SUITE_COMMAND_LIFE_RENEW, alias={"重写日常状态", "suite life renew"})
     async def life_renew(self, event: AstrMessageEvent, extra: str | None = None):
         extra = (extra or event.message_str.partition(" ")[2]).strip() or None
         if extra:
@@ -620,11 +1116,13 @@ class QzoneSelfieBridgePlugin(Star):
         yield event.plain_result(self._format_schedule_message(data, dt.datetime.now()))
 
     @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.command("日程时间", alias={"life time"})
+    @filter.command(SUITE_COMMAND_LIFE_TIME, alias={"设置日常刷新时间", "suite life time"})
     async def life_time(self, event: AstrMessageEvent, param: str | None = None):
         param = (param or event.message_str.partition(" ")[2]).strip()
         if not param:
-            yield event.plain_result("请提供时间，格式为 HH:MM 或 HH:MM:SS，例如 /日程时间 07:30")
+            yield event.plain_result(
+                "请提供时间，格式为 HH:MM 或 HH:MM:SS，例如 /日常刷新时间 07:30"
+            )
             return
         if not re.match(r"^\d{1,2}:\d{1,2}(?::\d{1,2})?$", param):
             yield event.plain_result("时间格式错误，请使用 HH:MM 或 HH:MM:SS")
@@ -647,7 +1145,10 @@ class QzoneSelfieBridgePlugin(Star):
         except Exception as exc:
             yield event.plain_result(f"设置失败：{exc}")
 
-    @filter.command("自拍参考", alias={"设置自拍参考", "清空自拍参考"})
+    @filter.command(
+        SUITE_COMMAND_SELFIE_REFERENCE,
+        alias={"设置自拍参考图", "清空自拍参考图", "suite selfie ref"},
+    )
     async def selfie_reference(self, event: AstrMessageEvent, action: str | None = None):
         action = (action or event.message_str.partition(" ")[2]).strip().lower()
         store_key = self._get_selfie_ref_store_key(event)
@@ -669,12 +1170,17 @@ class QzoneSelfieBridgePlugin(Star):
         image_segs = await get_images_from_event(event, include_avatar=False)
         images = await self._image_segs_to_bytes(image_segs)
         if not images:
-            yield event.plain_result("请在命令消息里附带参考图，或使用“/自拍参考 查看”查看当前参考。")
+            yield event.plain_result(
+                "请在命令消息里附带参考图，或使用“/自拍参考图 查看”查看当前参考。"
+            )
             return
         count = await self.refs.set(store_key, images)
         yield event.plain_result(f"已更新自拍参考图，共 {count} 张。")
 
-    @filter.command("自拍", alias={"自拍预览", "自拍测试"})
+    @filter.command(
+        SUITE_COMMAND_SELFIE_PREVIEW,
+        alias={"生成自拍预览", "自拍预览生成", "suite selfie"},
+    )
     async def selfie_preview(self, event: AstrMessageEvent, extra: str | None = None):
         extra = (extra or event.message_str.partition(" ")[2]).strip() or None
         if self._publish_lock.locked():
@@ -698,8 +1204,8 @@ class QzoneSelfieBridgePlugin(Star):
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command(
-        "自拍说说",
-        alias={"发自拍说说", "自拍空间", "自拍发空间"},
+        SUITE_COMMAND_SELFIE_POST,
+        alias={"发自拍说说", "发布自拍空间", "suite selfie post"},
     )
     async def publish_selfie_qzone(
         self, event: AstrMessageEvent, extra: str | None = None
@@ -1425,13 +1931,14 @@ class QzoneSelfieBridgePlugin(Star):
             if character_traits
             else ""
         )
+        render_ctx = self._build_segment_render_context(schedule, extra=extra)
         return self.config.selfie_prompt_template.format(
-            outfit_style=schedule.outfit_style or "自然日常风",
-            outfit=schedule.outfit or "日常穿搭",
-            schedule=schedule.schedule or "今天按计划生活",
+            outfit_style=render_ctx["outfit_style"],
+            outfit=render_ctx["outfit"],
+            schedule=render_ctx["schedule"],
             character_traits=character_traits,
             character_traits_block=character_traits_block,
-            extra=(extra or "").strip(),
+            extra=render_ctx["extra"],
         ).strip()
 
     def _selfie_feature_conf(self) -> dict[str, Any]:
@@ -1791,15 +2298,16 @@ class QzoneSelfieBridgePlugin(Star):
         extra: str | None = None,
         origin: str | None = None,
     ) -> str:
-        outfit_style = schedule.outfit_style or "\u81ea\u7136\u65e5\u5e38\u98ce"
-        outfit = schedule.outfit or "\u65e5\u5e38\u7a7f\u642d"
-        day_schedule = schedule.schedule or "\u4eca\u5929\u6309\u8ba1\u5212\u751f\u6d3b"
+        render_ctx = self._build_segment_render_context(schedule, extra=extra)
+        outfit_style = render_ctx["outfit_style"]
+        outfit = render_ctx["outfit"]
+        day_schedule = render_ctx["schedule"]
         prompt = self.config.caption_prompt_template.format(
             outfit_style=outfit_style,
             outfit=outfit,
             schedule=day_schedule,
             selfie_prompt=selfie_prompt,
-            extra=(extra or "").strip(),
+            extra=render_ctx["extra"],
         )
         fallback = self.config.fallback_caption_template.format(
             outfit_style=outfit_style,
@@ -1853,6 +2361,22 @@ class QzoneSelfieBridgePlugin(Star):
         raw = "".join(lines).strip()
         raw = re.split(r"[\u3002\uff01\uff1f!?\uff1b;\n]+", raw, maxsplit=1)[0].strip()
         raw = re.sub(r"\s+", "", raw)
+        lowered = raw.lower()
+        english_junk_markers = (
+            "readytohelp",
+            "helpwiththetask",
+            "availabletools",
+            "canusetheavailabletools",
+            "usetheavailabletools",
+            "i am ready",
+            "i'm ready",
+        )
+        ascii_letters = sum(1 for ch in raw if "a" <= ch.lower() <= "z")
+        cjk_chars = sum(1 for ch in raw if "\u4e00" <= ch <= "\u9fff")
+        if any(marker in lowered for marker in english_junk_markers):
+            raw = fallback.strip()
+        elif ascii_letters >= max(8, len(raw) // 2) and cjk_chars <= 2:
+            raw = fallback.strip()
 
         if not raw:
             raw = fallback.strip()

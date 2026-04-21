@@ -1,86 +1,96 @@
 {
   "send_preview_to_chat": {
-    "description": "手动执行自拍相关命令后，是否把本次生成的自拍预览回发到当前聊天",
+    "description": "手动执行自拍相关命令后，是否把本次生成的图片回发到当前聊天。",
     "type": "bool",
     "default": true
   },
   "regenerate_life_when_missing": {
-    "description": "当前固定窗口没有可用生活日程时，是否自动补生成一份",
+    "description": "当前固定窗口没有可用的生活日程时，是否自动补生成一份。",
     "type": "bool",
     "default": true
   },
   "refresh_life_before_publish": {
-    "description": "每次生成自拍说说前，是否先强制刷新一次当前固定窗口日程",
+    "description": "每次生成自拍说说前，是否先强制刷新当前固定窗口日程。",
     "type": "bool",
     "default": false
   },
+  "enable_llm_state_injection": {
+    "description": "是否在日常对话时向 LLM 注入当前分时段穿搭和日程状态。",
+    "type": "bool",
+    "default": true
+  },
+  "suppress_injection_when_legacy_plugins_present": {
+    "description": "当检测到旧版生活日程/自拍/Qzone 插件同时存在时，自动关闭状态注入以减少冲突。",
+    "type": "bool",
+    "default": true
+  },
   "append_selfie_to_existing_images": {
-    "description": "当内部发布流程携带原图时，是否在末尾追加自拍图",
+    "description": "如果发布流里本身已有图片，是否把新生成的自拍追加进去。",
     "type": "bool",
     "default": true
   },
   "custom_publish_enabled": {
-    "description": "是否启用本插件自己的每日定时自拍说说任务",
+    "description": "是否启用本插件自己的每日定时自拍说说任务。",
     "type": "bool",
     "default": false
   },
   "custom_publish_times": {
-    "description": "每日自动发布的时间列表，支持 HH:MM 或 HH:MM:SS",
+    "description": "每日自动发布的时间列表，支持 HH:MM 或 HH:MM:SS。",
     "type": "list",
     "default": []
   },
   "skip_scheduled_publish_when_busy": {
-    "description": "定时任务触发时，如上一条发布仍在执行，是否直接跳过本次任务",
+    "description": "定时任务触发时，如果上一条发布还在执行，是否直接跳过本次任务。",
     "type": "bool",
     "default": true
   },
   "precheck_qzone_before_publish": {
-    "description": "每次发布前是否先验证 QQ 空间登录状态，通过后才继续生成图片和文案",
+    "description": "发布前是否先验证 QQ 空间登录状态，只有通过后才继续生成图片和文案。",
     "type": "bool",
     "default": true
   },
   "auto_refresh_qzone_cookies": {
-    "description": "预检时若有可用 bot client，是否主动刷新 QQ 空间 cookies",
+    "description": "预检查时如果存在可用 bot client，是否自动刷新 QQ 空间 cookies。",
     "type": "bool",
     "default": true
   },
   "notify_target_users": {
-    "description": "定时自动发布结果通知的私聊 QQ 列表，只保留纯数字 ID",
+    "description": "自动发布结果通知的私聊 QQ 列表，只保留纯数字 ID。",
     "type": "list",
     "default": []
   },
   "notify_target_groups": {
-    "description": "定时自动发布结果通知的群号列表，只保留纯数字 ID",
+    "description": "自动发布结果通知的群号列表，只保留纯数字 ID。",
     "type": "list",
     "default": []
   },
   "notify_on_success": {
-    "description": "定时自动发布成功后，是否把图片和结果通知给指定 QQ 或群",
+    "description": "自动发布成功后，是否把图片和结果通知给指定 QQ 或群。",
     "type": "bool",
     "default": true
   },
   "notify_on_failure": {
-    "description": "定时自动发布失败后，是否把错误通知给指定 QQ 或群",
+    "description": "自动发布失败后，是否把错误通知给指定 QQ 或群。",
     "type": "bool",
     "default": true
   },
   "selfie_prompt_template": {
-    "description": "自拍改图提示词模板",
+    "description": "自拍改图提示词模板。",
     "type": "text",
-    "default": "请基于提供的自拍参考图完成一次自然、真实、生活感强的自拍改图。必须保持同一人物的身份一致性、脸部特征和主体关系。穿搭风格：{outfit_style}。今日日程穿搭：{outfit}。{character_traits_block}请重点调整穿搭、发型细节、表情、姿态、背景氛围与镜头质感。整体效果要像本人随手拍下的真实生活自拍，不要变成陌生人，也不要做成纯文生图感。{extra}"
+    "default": "请基于提供的自拍参考图完成一次自然、真实、生活感强的自拍改图。必须保持同一人物的身份一致性、脸部特征和主体关系。穿搭风格：{outfit_style}。当前时段穿搭：{outfit}。{character_traits_block}请重点调整穿搭、表情、姿态、背景氛围与镜头质感，画面必须像本人在真实生活里顺手拍下的自拍，避免显老、过熟、浓妆、职业摆拍和重复动作。{extra}"
   },
   "selfie_character_traits": {
-    "description": "固定附加到自拍提示词里的角色特征，可写性别、年龄感、体型、气质等",
+    "description": "固定附加到自拍提示词里的角色特征，可写年龄感、体态、气质等。",
     "type": "string",
     "default": ""
   },
   "optimize_selfie_prompt": {
-    "description": "是否先用单独的聊天模型优化自拍改图提示词",
+    "description": "是否先用单独的聊天模型优化自拍改图提示词。",
     "type": "bool",
     "default": false
   },
   "selfie_prompt_optimizer_provider_id": {
-    "description": "用于优化自拍提示词的聊天 Provider ID，留空则跟随当前会话",
+    "description": "用于优化自拍提示词的聊天 Provider ID，留空则跟随当前会话。",
     "type": "string",
     "options": [
       ""
@@ -88,32 +98,32 @@
     "default": ""
   },
   "selfie_prompt_optimizer_template": {
-    "description": "自拍改图提示词优化器模板",
+    "description": "自拍改图提示词优化器模板。",
     "type": "text",
-    "default": "你要把以下自拍改图提示词优化成更适合参考图改图模型的版本。这是改图，不是文生图，必须围绕参考图中的同一人物做编辑。请只输出优化后的提示词本身，不要解释，不要分点，不要带引号。目标：真实、自然、好看、生活感强的自拍改图，人像自然，穿搭清晰，构图干净，照片质感好。优先保留人物的身份一致性，突出发型、五官、表情、穿搭和整体气质的统一性，可以调整背景氛围但不要偏离真实自拍感。基础提示词：{base_prompt}。穿搭风格：{outfit_style}。今日日程穿搭：{outfit}。{character_traits_block}附加要求：{extra}。"
+    "default": "你要把以下自拍改图提示词优化成更适合参考图改图模型的版本。这是改图，不是文生图，必须围绕参考图中的同一人物做编辑。请只输出优化后的提示词本身，不要解释，不要分点，不要带引号。目标：真实、自然、好看、生活感强的自拍改图，人物年轻、清透、像青春少女，避免显老、过熟、姨感和影楼感。基础提示词：{base_prompt}。穿搭风格：{outfit_style}。当前时段穿搭：{outfit}。{character_traits_block}附加要求：{extra}。"
   },
   "caption_prompt_template": {
-    "description": "说说文案提示词模板",
+    "description": "QQ 空间自拍说说文案模板。",
     "type": "text",
-    "default": "你要为一条配有自拍的 QQ 空间说说写文案。请根据以下信息，用第一人称写一段自然、生活化、像真人随手发的短句。穿搭风格：{outfit_style}。今日日程穿搭：{outfit}。今日日程：{schedule}。自拍设定：{selfie_prompt}。附加要求：{extra}。要求：尽量只输出一句话，优先以“我”或“今天”开头，控制在 24 字以内，不要分点，不要解释，不要带引号。"
+    "default": "你要为一条配有自拍的 QQ 空间说说写文案。请根据以下信息，用第一人称写一段自然、生活化、像真人随手发的短句。穿搭风格：{outfit_style}。当前时段穿搭：{outfit}。当前时段安排：{schedule}。自拍设定：{selfie_prompt}。附加要求：{extra}。要求：尽量只输出一句话，优先以“我”或“今天”开头，控制在 24 字以内，不要分点，不要解释，不要带引号。"
   },
   "fallback_caption_template": {
-    "description": "LLM 不可用时的回退文案模板",
+    "description": "LLM 不可用时的回退文案模板。",
     "type": "string",
     "default": "我今天穿着{outfit}顺手拍了一张。{schedule}"
   },
   "embedded_life_config_json": {
-    "description": "可选：直接粘贴本插件使用的 life JSON 配置内容",
+    "description": "可选：直接粘贴本插件使用的 life JSON 配置内容。",
     "type": "text",
     "default": ""
   },
   "embedded_qzone_config_json": {
-    "description": "可选：直接粘贴本插件使用的 qzone JSON 配置内容",
+    "description": "可选：直接粘贴本插件使用的 qzone JSON 配置内容。",
     "type": "text",
     "default": ""
   },
   "embedded_aiimg_config_json": {
-    "description": "可选：直接粘贴本插件使用的 aiimg JSON 配置内容",
+    "description": "可选：直接粘贴本插件使用的 aiimg JSON 配置内容。",
     "type": "text",
     "default": ""
   }

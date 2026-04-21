@@ -1,90 +1,74 @@
 项目：astrbot_plugin_selfie_suite
 
 作用：
-- 这是一个单插件整合版，把生活日程、自拍改图、QQ 空间发布三条链路收进同一个 AstrBot 插件。
-- 当前版本已经按“彻底独立版”收口：运行时不再导入、探测、接管或复用外部自拍相关插件。
-- 只依赖 AstrBot 运行环境和本插件自己的 Python 依赖。
-- v0.1.2 额外修复了 GitHub 仓库缺文件导致安装后 `internal_aiimg` 无法导入的问题，并为 `internal_aiimg/core` 补充了显式包入口。
+- 单插件整合版自拍说说套件。
+- 内置生活日程、自拍改图、QQ 空间发布三条链路。
+- 目标是替代“life_scheduler + gitee_aiimg + qzone/selfie_bridge”多插件组合，同时尽量能与旧插件共存。
+
+当前版本重点：
+- v0.1.5
+- 对外显示名改为“日常自拍发布助手”。
+- 重点解决两个问题：
+  1. 和旧三件套同时安装时的命令/注入冲突
+  2. 自拍动作老一套、日程时段不够细的问题
 
 模块结构：
-- main.py
-  - 插件主入口。
-  - 负责加载主配置、初始化内部 life / aiimg / qzone 能力、注册命令、处理定时任务、执行 QQ 空间发布。
-- internal_life/
-  - 内置生活日程模块。
-  - 负责日程数据存储、日程生成、固定时间刷新、当前时段选择。
-- internal_aiimg/core/
-  - 内置改图链路。
-  - 负责参考图管理、图片编辑、图片保存、Provider 路由。
-- internal_qzone/
-  - 内置 QQ 空间底层链路。
-  - 负责 session、api、帖子模型和发布所需的最小能力。
+- `main.py`
+  - 主入口
+  - 负责配置、命令、QZone 发布、自拍 prompt/caption 编排
+- `internal_life/`
+  - 日程数据、固定窗口、分段生成器
+- `internal_aiimg/`
+  - 参考图、改图路由、provider 注册、图片保存
+- `internal_qzone/`
+  - QQ 空间 session / api / model
 
-配置策略：
-- 本插件只认自己的三份 JSON 配置：
-  - astrbot_plugin_selfie_suite_life_config.json
-  - astrbot_plugin_selfie_suite_qzone_config.json
-  - astrbot_plugin_selfie_suite_aiimg_config.json
-- 如果用户不想单独维护文件，也可以直接在插件配置里填写：
-  - embedded_life_config_json
-  - embedded_qzone_config_json
-  - embedded_aiimg_config_json
-- 不再默认复用旧插件配置文件，不再回退旧插件数据目录。
+本轮关键行为：
+- 命令共存：
+  - 源码装饰器和运行时注册表都统一到 `日常状态 / 刷新日常状态 / 日常刷新时间 / 自拍参考图 / 生成自拍 / 发布自拍说说`
+  - 不再只依赖初始化后的运行时改名，减少和旧 life / aiimg / qzone / bridge 插件抢命令
+- 注入共存：
+  - 新增 `enable_llm_state_injection`
+  - 新增 `suppress_injection_when_legacy_plugins_present`
+  - 检测到旧插件存在时，默认关闭状态注入，避免重复往 system prompt 塞生活状态
+- 自拍多样化：
+  - 引入 `selfie_variant_state.json`
+  - 对每个“日期 + 时段”稳定选择自拍动作、镜头、表情、场景和道具细节
+  - 新增 `_SELFIE_VARIANT_COMMON_POOL`，把各时段专属池和全局补充池合并，避免动作老是那几套
+  - 同一天同一时段保持稳定，跨天尽量去重
+- 分时段细化：
+  - life 生成器现在有本地时段变体池
+  - 六个时段各自拥有独立的活动/地点/心情/自拍场景/自拍动作/光线/caption 提示
+  - 新增 `_COMMON_SEGMENT_VARIATION_POOL`，让日程细节不只依赖单段的少量样本
+  - 同一天生成稳定，不再完全依赖模型格式
+- 文案兜底：
+  - `_normalize_caption_text()` 会拦截 `I am ready to help...` 这一类英文废话，自动回退本地文案模板
+- 用户可见输出：
+  - `日常状态` 现在直接展示当前时段与全时段的穿搭细节、地点、心情、自拍动作和光线
+- suite 单装兜底：
+  - `main.py` 内置 `_default_life_config()`
+  - 旧配置文件缺失 `pool` 时也能工作
 
-数据目录：
-- 主数据目录：
-  - plugin_data/astrbot_plugin_selfie_suite
-- 子目录：
-  - plugin_data/astrbot_plugin_selfie_suite/life_scheduler
-  - plugin_data/astrbot_plugin_selfie_suite/aiimg
-- 这样做的目的，是把单插件运行态和旧多插件部署完全隔离开，避免互相污染。
+重要文件：
+- `main.py`
+- `main.py.codex.txt`
+- `internal_life/data.py`
+- `internal_life/generator.py`
+- `internal_life/generator.py.codex.txt`
+- `_conf_schema.json`
+- `metadata.yaml`
+- `CHANGELOG.md`
 
-当前用户面：
-- 查看日程
-- 重写日程
-- 日程时间
-- 自拍参考
-- 自拍
-- 自拍说说
-
-关键执行流：
-- 手动自拍预览：
-  - selfie_preview()
-  - _build_selfie_publish_bundle()
-  - 只返回图片和文案，不发 QQ 空间
-- 手动自拍说说：
-  - publish_selfie_qzone()
-  - publish_selfie_post()
-  - _ensure_qzone_publish_ready()
-  - _build_selfie_publish_bundle()
-  - _publish_direct_to_qzone()
-- 定时自拍说说：
-  - DailySelfiePublishScheduler.start()
-  - _run_custom_publish_job()
-  - publish_selfie_post()
-
-设计边界：
-- 当前目标是“一个插件可直接安装运行”，不是“把底层所有配置项重新做成一套大型统一 UI”。
-- QQ 空间的通知目标只认本插件显式配置的 QQ/群号，不再从外部 qzone 插件读取管理员或管理群。
-- 代码里仍有极少量 no-op 兼容桩，但运行时不会再碰外部自拍插件。
-
-调试提示：
-- 导入失败优先看：
-  - main.py
-  - internal_qzone/config.py
-  - requirements.txt
-- 配置异常优先看：
-  - _resolve_component_config()
-  - embedded_*_config_json 是否是合法 JSON 对象
-- 自拍链路异常优先看：
-  - ReferenceStore
-  - EditRouter
-  - ProviderRegistry
-- QQ 空间发布异常优先看：
-  - _ensure_qzone_publish_ready()
-  - _repair_qzone_login_state()
-  - _publish_direct_to_qzone()
-
-已知风险：
-- 这是运行时整合版，底层能力来自被内嵌的原插件代码，后续如果继续演进，需要统一日志前缀、注释和异常文本。
-- 目前优先保证“单插件独立运行”和“旧链路不再耦合”，不是优先做配置体验美化。
+调试路径：
+- 冲突问题先看：
+  - `main.py::_detect_legacy_conflict_plugins`
+  - `main.py::_apply_command_namespace`
+  - `main.py::_should_inject_llm_state`
+- 自拍重复问题先看：
+  - `main.py::_SELFIE_VARIANT_POOLS`
+  - `main.py::_pick_selfie_variant`
+  - `main.py::_build_segment_render_context`
+- 日程过粗问题先看：
+  - `internal_life/generator.py::_SEGMENT_VARIATION_POOL`
+  - `internal_life/generator.py::_apply_local_segment_variation`
+  - `internal_life/data.py::build_detailed_segments`
