@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.1.8
+
+- 插件设置页新增常用改图接口字段，不再只能手填 `embedded_aiimg_config_json`。
+- 新增可视化字段：`aiimg_provider_type / aiimg_provider_id / aiimg_base_url / aiimg_api_url / aiimg_api_keys / aiimg_model / aiimg_timeout / aiimg_default_output / aiimg_proxy_url / aiimg_supports_edit`。
+- 初始化时会把这些字段自动写入内部 aiimg 配置，并同步更新 `features.edit.chain` 与 `features.selfie.chain`，让自拍改图直接走设置页配置的接口。
+
+## v0.1.7
+
+- 新增 `publish_caption_enabled` 开关，可单独控制 `发布自拍说说` 时是否携带文案；关闭后仅发布图片。
+- 重写默认 `caption_prompt_template`，更强调“像真人当天顺手发的短句”，避免总结感、广告感和提示词味道。
+- 本地兜底文案改成按当前时段、活动、地点、心情、穿搭组合生成，更自然，不再总是同一种生硬句式。
+- 发布成功回执和定时发布通知会根据开关状态展示“文案已关闭，本次仅发布图片”。
+
 ## v0.1.6
 
 - 完善仓库对外信息，README 新增作者、仓库地址、安装地址和安装方式。
