@@ -139,6 +139,17 @@ _DEFAULT_LIFE_POOL = {
         "轻社交型",
     ],
 }
+_AIIMG_PROVIDER_TYPE_OPTIONS = (
+    "openai_chat",
+    "openai_images",
+    "gitee_images",
+    "gemini_openai_images",
+    "gemini_native",
+    "grok_images",
+    "grok2api_images",
+    "modelscope_openai_images",
+    "openai_full_url_images",
+)
 _SELFIE_VARIANT_POOLS: dict[str, dict[str, list[str]]] = {
     "wake_up": {
         "pose": ["站在窗边半身自拍", "坐在床边微侧身自拍", "对镜举手机轻轻抬下巴自拍", "整理头发时顺手自拍"],
@@ -325,11 +336,22 @@ class BridgeConfig:
     optimize_selfie_prompt: bool
     selfie_prompt_optimizer_provider_id: str
     selfie_prompt_optimizer_template: str
+    publish_caption_enabled: bool
     caption_prompt_template: str
     fallback_caption_template: str
     embedded_life_config_json: str = ""
     embedded_qzone_config_json: str = ""
     embedded_aiimg_config_json: str = ""
+    aiimg_provider_type: str = ""
+    aiimg_provider_id: str = ""
+    aiimg_base_url: str = ""
+    aiimg_api_url: str = ""
+    aiimg_api_keys: tuple[str, ...] = ()
+    aiimg_model: str = ""
+    aiimg_timeout: int = 120
+    aiimg_default_output: str = ""
+    aiimg_proxy_url: str = ""
+    aiimg_supports_edit: bool = True
 
     @staticmethod
     def _normalize_time_items(raw: Any) -> tuple[str, ...]:
@@ -361,6 +383,23 @@ class BridgeConfig:
             if not item or not item.isdigit() or item in result:
                 continue
             result.append(item)
+        return tuple(result)
+
+    @staticmethod
+    def _normalize_text_items(raw: Any) -> tuple[str, ...]:
+        if isinstance(raw, str):
+            parts = re.split(r"[\r\n,\uff0c;\uff1b|]+", raw.strip())
+        elif isinstance(raw, list):
+            parts = [str(item).strip() for item in raw]
+        else:
+            return ()
+
+        result: list[str] = []
+        for item in parts:
+            text = str(item).strip()
+            if not text or text in result:
+                continue
+            result.append(text)
         return tuple(result)
 
     @classmethod
@@ -442,23 +481,39 @@ class BridgeConfig:
                     "\u9644\u52a0\u8981\u6c42\uff1a{extra}\u3002"
                 )
             ),
+            publish_caption_enabled=bool(data.get("publish_caption_enabled", True)),
             caption_prompt_template=str(
                 data.get("caption_prompt_template")
                 or (
-                    "你要为一条配有自拍的QQ空间说说写文案。"
-                    "请根据以下信息，用第一人称写一段自然、生活化、像真人发的说说文案。"
+                    "你要为一条带自拍图的QQ空间说说写短文案。"
+                    "语气要像真人当天顺手发的生活记录，轻松、自然、不端着，不要像总结、广告、提示词或文艺摘抄。"
+                    "优先结合当前时段的状态来写，可以带一点当下的心情，但不要故作深沉。"
+                    "当前时段：{segment_label}。"
+                    "当前活动：{segment_activity}。"
+                    "当前地点：{segment_location}。"
+                    "当前心情：{segment_mood}。"
                     "穿搭风格：{outfit_style}。"
-                    "今日穿搭：{outfit}。"
-                    "今日安排：{schedule}。"
+                    "当前穿搭：{outfit}。"
+                    "当前安排：{schedule}。"
                     "自拍设定：{selfie_prompt}。"
                     "附加要求：{extra}。"
-                    "要求：80字以内，不要分点，不要解释，不要带引号，不要写成提示词。"
+                    "要求：只输出1句成品文案，长度控制在12到28个字，允许口语化停顿，不要分点，不要解释，不要加引号，不要出现“今日份”“营业”“氛围感”“打卡”等生硬词。"
                 )
             ),
             fallback_caption_template=str(
                 data.get("fallback_caption_template")
-                or "今天是{outfit_style}的一天，换上这身衣服出门前随手拍了一张。{schedule}"
+                or "{segment_label}|{segment_activity}|{segment_location}|{segment_mood}|{outfit}"
             ),
+            aiimg_provider_type=str(data.get("aiimg_provider_type") or "").strip(),
+            aiimg_provider_id=str(data.get("aiimg_provider_id") or "").strip(),
+            aiimg_base_url=str(data.get("aiimg_base_url") or "").strip(),
+            aiimg_api_url=str(data.get("aiimg_api_url") or "").strip(),
+            aiimg_api_keys=cls._normalize_text_items(data.get("aiimg_api_keys", [])),
+            aiimg_model=str(data.get("aiimg_model") or "").strip(),
+            aiimg_timeout=max(1, int(data.get("aiimg_timeout") or 120)),
+            aiimg_default_output=str(data.get("aiimg_default_output") or "").strip(),
+            aiimg_proxy_url=str(data.get("aiimg_proxy_url") or "").strip(),
+            aiimg_supports_edit=bool(data.get("aiimg_supports_edit", True)),
         )
 
 
@@ -611,6 +666,94 @@ class QzoneSelfieBridgePlugin(Star):
         data = _merge_config_defaults({}, default_data or {})
         self._ensure_json_file(own_path, data)
         return data, own_path
+
+    def _has_explicit_aiimg_ui_config(self) -> bool:
+        keys = (
+            "aiimg_provider_type",
+            "aiimg_provider_id",
+            "aiimg_base_url",
+            "aiimg_api_url",
+            "aiimg_api_keys",
+            "aiimg_model",
+            "aiimg_default_output",
+            "aiimg_proxy_url",
+        )
+        for key in keys:
+            value = self.raw_config.get(key)
+            if isinstance(value, str) and value.strip():
+                return True
+            if isinstance(value, list) and any(str(item).strip() for item in value):
+                return True
+        return False
+
+    def _apply_aiimg_ui_config(self) -> None:
+        if not self._has_explicit_aiimg_ui_config():
+            return
+
+        cfg = self.gitee_config_raw if isinstance(self.gitee_config_raw, dict) else {}
+        providers = cfg.setdefault("providers", [])
+        if not isinstance(providers, list):
+            providers = []
+            cfg["providers"] = providers
+
+        provider_id = self.config.aiimg_provider_id or "selfie_suite_main"
+        provider_type = self.config.aiimg_provider_type or "openai_chat"
+        if provider_type not in _AIIMG_PROVIDER_TYPE_OPTIONS:
+            provider_type = "openai_chat"
+
+        provider_conf: dict[str, Any] | None = None
+        for item in providers:
+            if isinstance(item, dict) and str(item.get("id") or "").strip() == provider_id:
+                provider_conf = item
+                break
+        if provider_conf is None:
+            provider_conf = {"id": provider_id}
+            providers.append(provider_conf)
+
+        provider_conf["id"] = provider_id
+        provider_conf["__template_key"] = provider_type
+        provider_conf["type"] = provider_type
+
+        if self.config.aiimg_base_url:
+            provider_conf["base_url"] = self.config.aiimg_base_url
+        if self.config.aiimg_api_url:
+            provider_conf["api_url"] = self.config.aiimg_api_url
+        if self.config.aiimg_api_keys:
+            provider_conf["api_keys"] = list(self.config.aiimg_api_keys)
+        if self.config.aiimg_model:
+            provider_conf["model"] = self.config.aiimg_model
+        if self.config.aiimg_timeout > 0:
+            provider_conf["timeout"] = int(self.config.aiimg_timeout)
+        if self.config.aiimg_proxy_url:
+            provider_conf["proxy_url"] = self.config.aiimg_proxy_url
+        provider_conf["supports_edit"] = bool(self.config.aiimg_supports_edit)
+
+        features = cfg.setdefault("features", {})
+        if not isinstance(features, dict):
+            features = {}
+            cfg["features"] = features
+        edit_conf = features.setdefault("edit", {})
+        if not isinstance(edit_conf, dict):
+            edit_conf = {}
+            features["edit"] = edit_conf
+        selfie_conf = features.setdefault("selfie", {})
+        if not isinstance(selfie_conf, dict):
+            selfie_conf = {}
+            features["selfie"] = selfie_conf
+
+        output = self.config.aiimg_default_output
+        chain_item: dict[str, str] = {"provider_id": provider_id}
+        if output:
+            chain_item["output"] = output
+            edit_conf["default_output"] = output
+        edit_conf["enabled"] = True
+        edit_conf["chain"] = [chain_item]
+        selfie_conf["enabled"] = True
+        selfie_conf["chain"] = [dict(chain_item)]
+        selfie_conf["use_edit_chain_when_empty"] = True
+
+        self.gitee_config_raw = cfg
+        self._ensure_json_file(self.gitee_config_path, cfg)
 
     def _resolve_component_data_dir(
         self,
@@ -836,12 +979,22 @@ class QzoneSelfieBridgePlugin(Star):
         moment = moment or dt.datetime.now()
         segment = schedule.active_segment(moment) if hasattr(schedule, "active_segment") else None
         variant = self._pick_selfie_variant(schedule, segment)
+        segment_label = "当前时段"
+        segment_activity = ""
+        segment_location = ""
+        segment_mood = ""
         outfit_text = schedule.outfit or "日常穿搭"
         schedule_text = schedule.schedule or "今天按计划生活"
         extra_parts: list[str] = []
         if extra:
             extra_parts.append(extra.strip())
         if segment is not None:
+            segment_label = (
+                f"{segment.start_time}-{segment.end_time} {segment.label}".strip()
+            )
+            segment_activity = str(getattr(segment, "activity", "") or "").strip()
+            segment_location = str(getattr(segment, "location", "") or "").strip()
+            segment_mood = str(getattr(segment, "mood", "") or "").strip()
             outfit_text = (
                 getattr(segment, "outfit_detail_text", lambda: "")()  # type: ignore[misc]
                 or getattr(segment, "outfit", "")
@@ -882,6 +1035,10 @@ class QzoneSelfieBridgePlugin(Star):
             "outfit": outfit_text,
             "schedule": schedule_text,
             "extra": "；".join(part.strip("； ") for part in extra_parts if part and part.strip()),
+            "segment_label": segment_label,
+            "segment_activity": segment_activity or schedule_text,
+            "segment_location": segment_location or "日常活动场景",
+            "segment_mood": segment_mood or "轻松自然",
         }
 
     def _current_anchor_time(self) -> str:
@@ -906,6 +1063,7 @@ class QzoneSelfieBridgePlugin(Star):
             embedded_text=self.config.embedded_aiimg_config_json,
             default_data={"features": {"selfie": {"enabled": True}}},
         )
+        self._apply_aiimg_ui_config()
 
         self.life_config = JsonConfigAdapter(self.life_config_raw, self.life_config_path)
         self.life_data_dir = self._resolve_component_data_dir(
@@ -1226,8 +1384,13 @@ class QzoneSelfieBridgePlugin(Star):
             )
             if self.config.send_preview_to_chat:
                 await event.send(event.image_result(str(image_path)))
+            publish_note = (
+                f"文案：{caption}"
+                if caption
+                else "文案：已关闭，本次仅发布图片"
+            )
             yield event.plain_result(
-                f"发布成功，tid={post.tid or 'unknown'}\n文案：{caption}"
+                f"发布成功，tid={post.tid or 'unknown'}\n{publish_note}"
             )
         except Exception as exc:
             logger.error("[QzoneSelfieBridge] publish failed: %s", exc, exc_info=True)
@@ -1246,7 +1409,7 @@ class QzoneSelfieBridgePlugin(Star):
         async with self._publish_lock:
             await self._ensure_qzone_publish_ready(event=event, origin=origin)
             (
-                caption,
+                generated_caption,
                 publish_images,
                 preview_images,
                 image_path,
@@ -1256,6 +1419,9 @@ class QzoneSelfieBridgePlugin(Star):
                 origin=origin,
                 original_images=original_images,
             )
+            publish_caption = (
+                generated_caption if self.config.publish_caption_enabled else ""
+            )
 
             qzone_service = service
             if qzone_service is not None:
@@ -1263,7 +1429,7 @@ class QzoneSelfieBridgePlugin(Star):
                     qzone_service,
                     event=event,
                     origin=origin,
-                    caption=caption,
+                    caption=publish_caption,
                     publish_images=publish_images,
                     preview_images=preview_images,
                 )
@@ -1271,12 +1437,12 @@ class QzoneSelfieBridgePlugin(Star):
                 post = await self._publish_direct_to_qzone(
                     event=event,
                     origin=origin,
-                    caption=caption,
+                    caption=publish_caption,
                     publish_images=publish_images,
                     preview_images=preview_images,
                 )
 
-            return post, caption, image_path
+            return post, publish_caption, image_path
 
     def _resolve_schedule_timezone(self) -> zoneinfo.ZoneInfo:
         timezone_name = self.context.get_config().get("timezone")
@@ -1804,7 +1970,7 @@ class QzoneSelfieBridgePlugin(Star):
             message = (
                 f"定时自拍说说成功 {time_spec}\n"
                 f"TID：{post.tid if post is not None and post.tid else 'unknown'}\n"
-                f"文案：{caption or ''}"
+                f"文案：{caption or '已关闭，本次仅发布图片'}"
             )
         else:
             message = f"定时自拍说说失败 {time_spec}\n原因：{error or '未知错误'}"
@@ -2306,14 +2472,23 @@ class QzoneSelfieBridgePlugin(Star):
             outfit_style=outfit_style,
             outfit=outfit,
             schedule=day_schedule,
+            segment_label=render_ctx["segment_label"],
+            segment_activity=render_ctx["segment_activity"],
+            segment_location=render_ctx["segment_location"],
+            segment_mood=render_ctx["segment_mood"],
             selfie_prompt=selfie_prompt,
             extra=render_ctx["extra"],
         )
-        fallback = self.config.fallback_caption_template.format(
+        fallback_seed = self.config.fallback_caption_template.format(
             outfit_style=outfit_style,
             outfit=outfit,
             schedule=day_schedule,
+            segment_label=render_ctx["segment_label"],
+            segment_activity=render_ctx["segment_activity"],
+            segment_location=render_ctx["segment_location"],
+            segment_mood=render_ctx["segment_mood"],
         ).strip()
+        fallback = self._build_natural_fallback_caption(fallback_seed)
 
         provider = self._get_provider(origin)
         if provider:
@@ -2381,7 +2556,7 @@ class QzoneSelfieBridgePlugin(Star):
         if not raw:
             raw = fallback.strip()
 
-        raw = raw[:36].strip("\uff0c,\u3001\u3002\uff01\uff1f!?\uff1b;\uff1a: ")
+        raw = raw[:32].strip("\uff0c,\u3001\u3002\uff01\uff1f!?\uff1b;\uff1a: ")
         if not raw:
             raw = "\u6211\u4eca\u5929\u968f\u624b\u62cd\u4e86\u4e00\u5f20"
 
@@ -2397,14 +2572,47 @@ class QzoneSelfieBridgePlugin(Star):
                 "\u665a\u4e0a",
                 "\u65e9\u4e0a",
                 "\u5348\u540e",
+                "\u8fd9\u4f1a\u513f",
+                "\u8fd9\u4e00\u8eab",
             )
         ):
             raw = f"\u6211{raw}"
 
-        raw = raw[:36].strip("\uff0c,\u3001\u3002\uff01\uff1f!?\uff1b;\uff1a: ")
+        raw = raw[:32].strip("\uff0c,\u3001\u3002\uff01\uff1f!?\uff1b;\uff1a: ")
         if not raw:
             raw = "\u6211\u4eca\u5929\u968f\u624b\u62cd\u4e86\u4e00\u5f20"
         return f"{raw}\u3002"
+
+    @staticmethod
+    def _build_natural_fallback_caption(seed_text: str) -> str:
+        parts = [part.strip() for part in (seed_text or "").split("|")]
+        while len(parts) < 5:
+            parts.append("")
+        segment_label, activity, location, mood, outfit = parts[:5]
+        digest = hashlib.sha256(seed_text.encode("utf-8")).hexdigest()
+        templates = [
+            "我刚在{location}{activity_tail}，顺手留一张。",
+            "{segment_prefix}{outfit_tail}还挺对今天的状态，拍一下。",
+            "这会儿在{location}{activity_tail}，这身刚好。",
+            "{mood_prefix}{outfit_tail}，就想顺手拍一张。",
+            "今天到{segment_label}{activity_tail}，这张我先存着。",
+            "出门前看了眼镜子，{outfit_tail}比想的更顺眼。",
+        ]
+        template = templates[int(digest[:8], 16) % len(templates)]
+        activity_tail = f"忙着{activity}" if activity else "待着"
+        outfit_tail = f"这身{outfit}" if outfit else "这身打扮"
+        segment_prefix = f"{segment_label}的" if segment_label else "今天的"
+        mood_prefix = f"{mood}的时候" if mood else "刚松下来"
+        location_value = location or "这边"
+        text = template.format(
+            location=location_value,
+            activity_tail=activity_tail,
+            outfit_tail=outfit_tail,
+            segment_label=segment_label or "这个时段",
+            segment_prefix=segment_prefix,
+            mood_prefix=mood_prefix,
+        )
+        return text.strip()
 
     @staticmethod
     def _extract_completion_text(resp: object) -> str:
