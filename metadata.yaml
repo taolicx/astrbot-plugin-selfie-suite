@@ -1,6 +1,6 @@
 name: astrbot_plugin_selfie_suite
 display_name: 日常自拍发布助手
 desc: 内置生活日程、自拍改图与 QQ 空间发布链路的单插件整合版，支持更自然的日常自拍、多时段细化与旧插件避冲突。
-version: v0.1.6
+version: v0.1.8
 author: taolicx
 repo: "https://github.com/taolicx/astrbot-plugin-selfie-suite"
